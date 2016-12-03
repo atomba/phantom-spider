@@ -2,18 +2,74 @@
 
 /* globals document: true */
 
+const url       = require("url"),
+      config    = require("config"),
+      _         = require("lodash");
+
 var phantomAPI  = require("phantom"),
-    Crawler     = require("simplecrawler"),
+    Crawler     = require("jes-spider"),
     colors      = require("colors/safe"),
     phantomjs   = require("phantomjs");
 
-var crawler = new Crawler("www.example.com", "/", 80, 0),
-    phantomBin = phantomjs.path,
+var MessageServer = require("tyo-mq");
+
+var seedUrl;
+
+if (process.argv.length > 2) {
+    seedUrl = process.argv[2];
+}
+
+/**
+ * parse the url
+ */
+
+//var urlObj = url.parse(seedUrl);
+var crawler;
+if (seedUrl) {
+    //throw new Error("Please provide a valid seed url.");
+    crawler = new Crawler(seedUrl);    
+}
+else {
+    crawler = new Crawler('http://localhost');
+}
+
+var phantomBin = phantomjs.path,
     phantomBannedExtensions = /\.(png|jpg|jpeg|gif|ico|css|js|csv|doc|docx|pdf)$/i,
     phantomQueue = [];
 
-phantomAPI.create({ binary: phantomBin }, runCrawler);
+// load config
+// most common Chrome, Firefox, Safari user agent
+var crawlerConfig = config.get("crawler");
+for (var key in crawlerConfig) {
+    if (_.isFunction(crawler[key]))
+        continue;
 
+    if (key === "cache") {
+        crawler.cache = new Crawler.cache(crawlerConfig[key]);
+    }
+    else {
+        crawler[key] = crawlerConfig[key];
+    }
+}
+// crawler.userAgent=
+// crawler.respectRobotsTxt=false
+// crawler.cache = new Crawler.cache('cache');
+
+var mq = new MessageServer();
+mq.start();
+
+var consumer = mq.createConsumer(() => {
+    consumer.subscribe('newlink', (newUrl) => {
+        console.log("received new link: " + newUrl);
+        crawler.queueURL(newUrl);
+
+        if (Crawler.stopped) {
+            crawler.start();
+        }
+    });
+});
+
+phantomAPI.create({ binary: phantomBin }, runCrawler);
 
 // Events which end up being a bit noisy
 var boringEvents = [
@@ -51,7 +107,20 @@ crawler.emit = function(name, queueItem) {
     originalEmit.apply(crawler, arguments);
 };
 
-crawler.on("complete", process.exit.bind(process, 0));
+crawler.on("complete", /*process.exit.bind(process, 0)*/() => {
+    crawler.stopped = true;
+});
+
+var redirects = {};
+
+crawler.on("fetchredirect", (queueItem, parsedURL, response) => {
+    // in lots of time, redirection is a way that is used for building up user id
+    var cookieName = parsedURL.host + ".cookie";
+    var newUrl = response.headers.location;
+    console.log("redirected to " + newUrl);
+
+    crawler.queueURL(newUrl);
+});
 
 function runCrawler(phantom) {
     crawler.start();
