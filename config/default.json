@@ -4,6 +4,7 @@
         "respectRobotsTxt": false,
         "maxDepth": 1,
         "cache": "cache",
-        "acceptCookies": true
+        "acceptCookies": true,
+        "filterByDomain": false
     }
 }
