@@ -56,9 +56,13 @@ var phantomBin = phantomjs.path,
 // crawler.cache = new Crawler.cache('cache');
 
 var mq = new MessageServer();
-mq.start();
 
-var consumer = mq.createConsumer(() => {
+var consumer;
+var producer;
+
+mq.createConsumer((instance) => {
+    consumer = instance;
+
     consumer.subscribe('newlink', (newUrl) => {
         console.log("received new link: " + newUrl);
         crawler.queueURL(newUrl);
@@ -67,11 +71,13 @@ var consumer = mq.createConsumer(() => {
             crawler.start();
         }
     });
+    
+    mq.createProducer('linkcontent', (instance) => {
+        producer = instance;
+        phantomAPI.create({ binary: phantomBin }, runCrawler);
+    });
+
 });
-
-var producer = mq.createProducer('linkcontent');
-
-phantomAPI.create({ binary: phantomBin }, runCrawler);
 
 // Events which end up being a bit noisy
 var boringEvents = [
@@ -159,7 +165,10 @@ function fetchPage(phantom, url, callback) {
             //     if (url)
             //         crawler.queueURL(url);
             // });
-            producer({url:url, content:result});
+            setTimeout(function() {
+                producer.produce.call(producer, {url:url, content:result});
+            }, 5);
+
             callback();
         });
     });

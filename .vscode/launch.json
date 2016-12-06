@@ -15,6 +15,7 @@
                 "--nolazy"
             ],
             "env": {
+                // "DEBUG": "*",
                 "NODE_ENV": "development"
             },
             "console": "internalConsole",
