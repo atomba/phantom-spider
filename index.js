@@ -9,14 +9,49 @@ const url       = require("url"),
 var phantomAPI  = require("phantom"),
     Crawler     = require("jes-spider"),
     colors      = require("colors/safe"),
-    phantomjs   = require("phantomjs");
+    phantomjs   = require("phantomjs"),
+    dateFormat = require('dateformat');
 
-var MessageServer = require("tyo-mq");
+var MessageServer = require("tyo-mq"),
+    Queue = require('./queue');
+
+var ON_DEATH = require('death'); //this is intentionally ugly     
+
+var param = 2, queueFile;
+if (process.argv.length > 2) {
+    for (; param < process.argv.length; ++param) {
+    	var o = process.argv[param].charAt(0);
+    	if (o === '-' && process.argv[param].length === 2) {
+    		var c = process.argv[param].charAt(1);
+	        switch (c) {
+	            case 'q':
+	                queueFile = process.argv[++param];
+	            break;
+	            case 'p':
+	                //process.argv[++param];
+	            break;
+	            case 's':
+	                //process.argv[++param];
+	            break;
+	            case 'c':
+	            	//process.argv[++param];
+	            break;
+                case '-': {
+                    // long option
+                    break;
+                }
+	        }
+        }
+        else {
+        	console.log("Unknown option: " + process.argv[param]);
+        }
+    }
+}
 
 var seedUrl;
 
-if (process.argv.length > 2) {
-    seedUrl = process.argv[2];
+if (param > 2) {
+    seedUrl = process.argv[param];
 }
 
 /**
@@ -49,7 +84,12 @@ var crawler = createNewCrawler (seedUrl);
 
 var phantomBin = phantomjs.path,
     phantomBannedExtensions = /\.(png|jpg|jpeg|gif|ico|css|js|csv|doc|docx|pdf)$/i,
-    phantomQueue = [];
+    phantomQueue = new Queue; // [];
+    errorQueue = new Queue; //[];
+
+if (queueFile) {
+    phantomQueue.deserialize(queueFile);
+}
 
 // crawler.userAgent=
 // crawler.respectRobotsTxt=false
@@ -61,6 +101,7 @@ var consumer;
 var producer;
 
 mq.createConsumer((instance) => {
+    console.log("Created newlink subscriber");
     consumer = instance;
 
     consumer.subscribe('newlink', (newUrl) => {
@@ -73,6 +114,7 @@ mq.createConsumer((instance) => {
     });
     
     mq.createProducer('linkcontent', (instance) => {
+        console.log("Created linkcontent producer");
         producer = instance;
         phantomAPI.create({ binary: phantomBin }, runCrawler);
     });
@@ -141,7 +183,7 @@ function runCrawler(phantom) {
         if (!queueItem.url.match(phantomBannedExtensions)) {
             var resume = this.wait();
             phantomQueue.push(queueItem.url);
-            processQueue(phantom, resume);
+            //processQueue(phantom, resume);
         }
     });
 }
@@ -154,23 +196,28 @@ function fetchPage(phantom, url, callback) {
             colors.green("Phantom opened URL with %s — ") + colors.cyan("%s"), status, url);
 
         //if nothing further to do return callback();
-
+        if (status === 'success') {
         // we are not doing the link discovery here
-        page.evaluate(processPage, function(result) {
-            // if result is the dom html
+            page.evaluate(processPage, function(result) {
+                // if result is the dom html
 
 
-            // if result is a link array
-            // result.forEach(function(url) {
-            //     if (url)
-            //         crawler.queueURL(url);
-            // });
-            setTimeout(function() {
-                producer.produce.call(producer, {url:url, content:result});
-            }, 5);
+                // if result is a link array
+                // result.forEach(function(url) {
+                //     if (url)
+                //         crawler.queueURL(url);
+                // });
+                setTimeout(function() {
+                    producer.produce.call(producer, {url:url, content:result});
+                }, 5);
 
-            callback();
-        });
+                callback();
+            });
+        }
+        else {
+            console.error(status);
+            callback(new Error(status));
+        }
     });
 }
 
@@ -213,10 +260,43 @@ function processQueue(phantom, resume) {
             return resume();
         }
 
-        fetchPage(phantom, item, function() {
+        fetchPage(phantom, item, function(err) {
+            if (err) {
+                errorQueue.push(item);
+            }
+
             // Break up stack so we don't blow it
             setTimeout(processor.bind(null, phantomQueue.shift()), 10);
         });
 
     })(phantomQueue.shift());
 }
+
+// Prevents the program from closing instantly
+// process.stdin.resume();
+
+// catch the ctrl-c 
+// process.on('SIGINT', function() {
+// ON_DEATH(function(signal, err) {
+//     console.log("Caught interrupt signal");
+//     var now = new Date();
+
+//     var suffixStr = dateFormat(now, "yyyy-mm-dd-HH:MM:ss");
+
+//     // serialize queue items
+//     if (processQueue.size() > 0) {
+//         var queueCacheFile = path.resolve('cache', 'queue', "queue-" + suffixStr + ".json");
+//         queueCacheFile.serialize(queueCacheFile);
+//     }
+//     if (errorQueue.size() > 0) {
+//         var errorCacheFile = path.resolve('cache', 'queue', "error-" + suffixStr + ".json");
+//         errorQueue.serialize()
+//     }
+
+//     process.exit();
+// });
+
+
+ON_DEATH(function(signal, err) {
+    console.log("Caught interrupt signal");
+});

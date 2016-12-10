@@ -24,6 +24,8 @@
     "async": "^1.4.2",
     "colors": "^1.1.2",
     "config": "^1.21.0",
+    "dateformat": "^2.0.0",
+    "death": "^1.0.0",
     "jes-spider": "0.0.1",
     "jespider": "^0.0.1",
     "lodash": "^4.16.3",
