@@ -154,8 +154,26 @@ function Queue() {
      * 
      */
 
-    this.serialize = function (filename) {
-        var obj = {queue:queue};
+    this.serialize = function (filename, toDetailedQueue) {
+        toDetailedQueue = toDetailedQueue || true;
+
+        var queue, obj;
+        if (toDetailedQueue) {
+            queue = [];
+            for (var i = 0; i < this.queue.length; ++i) {
+                var item = {};
+                item.index = i;
+                item.item = this.queue[i];
+
+                queue.push(item);
+            }
+
+            obj = {detailedqueue: queue};
+        }
+        else {
+            queue = this.queue;
+            obj = {queue: queue};
+        }
         fs.writeFileSync(filename, JSON.stringify(obj));
     };
 
@@ -167,14 +185,25 @@ function Queue() {
         var data = fs.readFileSync(filename, "utf8");
 
         var obj = JSON.parse(data);
-        this.queue = obj.queue;
+        var queue;
+        if (obj.queue) {
+            queue = obj.queue;
+        }
+        else if (obj.detailedqueue) {
+            for (var i = 0; i < obj.detailedqueue.length; ++i) {
+                queue.push(obj.detailedqueue[i].item);
+            }
+        }
+
+        // index, where do we start the queue, by default 0, the bottom of the queue
         if (obj.index) {
             var count = obj.index;
             while (count > 0) {
-                this.pop();
+                queue.shift();
                 --count;
             }
         }
+        this.queue = this.queue.concat(queue);
     };
 
     /**

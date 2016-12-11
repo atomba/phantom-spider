@@ -2,20 +2,21 @@
 
 /* globals document: true */
 
-const url       = require("url"),
-      config    = require("config"),
-      _         = require("lodash");
+const url           = require("url"),
+      config        = require("config"),
+      path          = require("path");
+      _             = require("lodash");
 
-var phantomAPI  = require("phantom"),
-    Crawler     = require("jes-spider"),
-    colors      = require("colors/safe"),
-    phantomjs   = require("phantomjs"),
-    dateFormat = require('dateformat');
+var phantomAPI      = require("phantom"),
+    Crawler         = require("jes-spider"),
+    colors          = require("colors/safe"),
+    phantomjs       = require("phantomjs"),
+    dateFormat      = require('dateformat');
 
-var MessageServer = require("tyo-mq"),
-    Queue = require('./queue');
+var MessageServer   = require("tyo-mq"),
+    Queue           = require('./queue');
 
-var ON_DEATH = require('death'); //this is intentionally ugly     
+// var ON_DEATH = require('death'); //this is intentionally ugly     
 
 var param = 2, queueFile;
 if (process.argv.length > 2) {
@@ -86,10 +87,6 @@ var phantomBin = phantomjs.path,
     phantomBannedExtensions = /\.(png|jpg|jpeg|gif|ico|css|js|csv|doc|docx|pdf)$/i,
     phantomQueue = new Queue; // [];
     errorQueue = new Queue; //[];
-
-if (queueFile) {
-    phantomQueue.deserialize(queueFile);
-}
 
 // crawler.userAgent=
 // crawler.respectRobotsTxt=false
@@ -183,9 +180,14 @@ function runCrawler(phantom) {
         if (!queueItem.url.match(phantomBannedExtensions)) {
             var resume = this.wait();
             phantomQueue.push(queueItem.url);
-            //processQueue(phantom, resume);
+            processQueue(phantom, resume);
         }
     });
+
+    if (queueFile) {
+        phantomQueue.deserialize(queueFile);
+        processQueue(phantom, crawler.wait());
+    }
 }
 
 function fetchPage(phantom, url, callback) {
@@ -276,27 +278,31 @@ function processQueue(phantom, resume) {
 // process.stdin.resume();
 
 // catch the ctrl-c 
-// process.on('SIGINT', function() {
+process.prependListener('SIGINT', function() {
 // ON_DEATH(function(signal, err) {
-//     console.log("Caught interrupt signal");
-//     var now = new Date();
+    console.log("Caught interrupt (CTRL-C) signal");
+    var now = new Date();
 
-//     var suffixStr = dateFormat(now, "yyyy-mm-dd-HH:MM:ss");
+    var suffixStr = dateFormat(now, "yyyy-mm-dd-HH:MM:ss");
 
-//     // serialize queue items
-//     if (processQueue.size() > 0) {
-//         var queueCacheFile = path.resolve('cache', 'queue', "queue-" + suffixStr + ".json");
-//         queueCacheFile.serialize(queueCacheFile);
-//     }
-//     if (errorQueue.size() > 0) {
-//         var errorCacheFile = path.resolve('cache', 'queue', "error-" + suffixStr + ".json");
-//         errorQueue.serialize()
-//     }
+    // serialize queue items
+    if (phantomQueue.size() > 0) {
+        var queueCacheFile = path.resolve('cache', 'queue', "queue-" + suffixStr + ".json");
+        phantomQueue.serialize(queueCacheFile);
+    }
+    if (errorQueue.size() > 0) {
+        var errorCacheFile = path.resolve('cache', 'queue', "error-" + suffixStr + ".json");
+        errorQueue.serialize()
+    }
 
-//     process.exit();
-// });
-
-
-ON_DEATH(function(signal, err) {
-    console.log("Caught interrupt signal");
+    // process.exit();
 });
+
+/**
+ * PhantomJS installed exit/SIGINT/SIGTERM listeners, process.exit will be called after those listeners
+ * so we have to prepend our listeners
+ */
+
+// process.prependListener('SIGINT', function() {
+//     console.log("Caught interrupt signal");
+// });
