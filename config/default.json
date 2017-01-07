@@ -2,9 +2,17 @@
     "crawler": {
         "userAgent": "phantom-spider",
         "respectRobotsTxt": true,
-        "maxDepth": 1,
+        "maxDepth": 0,
         "cache": "cache",
         "acceptCookies": true,
-        "filterByDomain": false
+        "filterByDomain": true // Specifies whether the crawler will restrict queued requests to a given domain/domains
+
+        // domain specific config
+        ,
+        "play.google.com": {
+            "filters": [
+                "/store/apps/*"
+            ]
+        }
     }
 }
