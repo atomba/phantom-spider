@@ -127,8 +127,8 @@ var createNewCrawler = function (seedUrl) {
         var filters = (crawler[queueItem.host] && crawler[queueItem.host].filters) || crawler.filters;
         if (filters) {
             var shouldIgnored = true;
-            for (var i = 0; i < crawler.filters.length; ++i) {
-                if (queueItem.url.match(crawler.filters[i])) {
+            for (var i = 0; i < filters.length; ++i) {
+                if (queueItem.url.match(filters[i])) {
                     shouldIgnored = false;
                     break;
                 }
@@ -153,8 +153,12 @@ var urlHost = url.parse(seedUrl);
 var crawler = createNewCrawler(seedUrl);
 var queueFile = PHANTOM_SPIDER_QUEUE_DEFAULT + "_" + urlHost.host + ".json";
 
-var onSignal = function () {
+var onSignal = function (err) {
     console.log("Signal caught.");
+
+    if (err)
+        console.log(err.stack);
+
     crawler.queue.freeze(queueFile, function () {
         process.exit();
     });
@@ -163,8 +167,7 @@ var onSignal = function () {
 ON_DEATH(onSignal);
 
 process.on('uncaughtException', function (err) {
-    console.log(err);
-    onSignal();
+    onSignal(err);
 })
 
 crawler.queue.defrost(queueFile, () => {
