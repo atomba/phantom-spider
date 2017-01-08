@@ -124,26 +124,33 @@ var createNewCrawler = function (seedUrl) {
             return false;
         }
 
+        // 
+        console.log("processing " + queueItem.url);
+
         var filters = (crawler[queueItem.host] && crawler[queueItem.host].filters) || crawler.filters;
         if (filters) {
             var shouldIgnored = true;
             for (var i = 0; i < filters.length; ++i) {
-                if (queueItem.url.match(filters[i])) {
+                if (queueItem.path.match(filters[i])) {
                     shouldIgnored = false;
                     break;
                 }
             }
 
-            if (shouldIgnored)
+            if (shouldIgnored) {
+                crawler.emit("urlignored", queueItem);
+                console.log("ignoring " + queueItem.url);
                 return false;
+            }
         }
 
         var bannedExtensions = (crawler[queueItem.host] && crawler[queueItem.host].bannedExtensions) || crawler.bannedExtensions;
         if (bannedExtensions && queueItem.url.match(bannedExtensions)) {
+            crawler.emit("urlbanned", queueItem);
             return false;
         }
 
-        return originalQueueURL.apply(instance, argmements);
+        return originalQueueURL.bind(instance, queueItem, referrer, force)();
     }
 
     return instance;
