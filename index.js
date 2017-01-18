@@ -76,12 +76,13 @@ var createNewCrawler = function (seedUrl) {
     }
 
     // Events which end up being a bit noisy
-    var boringEvents = [
+    var boringEvents = instance["boringEvents"] || [
         "queueduplicate",
         "fetchstart",
         "discoverycomplete",
         "fetchheaders",
-        "fetchdisallowed"
+        "fetchdisallowed",
+        "urlignored"
     ];
 
     // Replace original emit so we can sample all events easily
@@ -125,7 +126,7 @@ var createNewCrawler = function (seedUrl) {
         }
 
         // 
-        console.log("processing " + queueItem.url);
+        //console.log("processing " + queueItem.url);
 
         var filters = (crawler[queueItem.host] && crawler[queueItem.host].filters) || crawler.filters;
         if (filters) {
@@ -139,7 +140,7 @@ var createNewCrawler = function (seedUrl) {
 
             if (shouldIgnored) {
                 crawler.emit("urlignored", queueItem);
-                console.log("ignoring " + queueItem.url);
+                //console.log("ignoring " + queueItem.url);
                 return false;
             }
         }

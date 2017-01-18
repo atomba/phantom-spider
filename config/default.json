@@ -12,7 +12,8 @@
         "play.google.com": {
             "filters": [
                 "/store/apps/*"
-            ]
+            ],
+            "bannedExtensions": ".*/store/apps/details?id=.*reviewId=.*"
         }
     }
 }
