@@ -8,59 +8,91 @@ const url           = require("url"),
       _             = require("lodash");
 
 var phantomAPI      = require("phantom"),
-    Crawler         = require("jes-spider"),
+    Crawler         = require("simplecrawler"),
     colors          = require("colors/safe"),
     phantomjs       = require("phantomjs"),
     dateFormat      = require('dateformat');
 
-var MessageServer   = require("tyo-mq"),
+var MessageServer   = require("tyo-mq").MessageQueue,
     Queue           = require('./queue');
+
+var Params          = require('node-programmer/params'); 
+
+var optsAvailable = {
+    "pattern": null,
+    "queue-file": null,
+    "same-path": true,
+    "same-host": true,
+    "exit-on-complete": true
+};
 
 // var ON_DEATH = require('death'); //this is intentionally ugly     
 
-var param = 2, queueFile;
-if (process.argv.length > 2) {
-    for (; param < process.argv.length; ++param) {
-    	var o = process.argv[param].charAt(0);
-    	if (o === '-' && process.argv[param].length === 2) {
-    		var c = process.argv[param].charAt(1);
-	        switch (c) {
-	            case 'q':
-	                queueFile = process.argv[++param];
-	            break;
-	            case 'p':
-	                //process.argv[++param];
-	            break;
-	            case 's':
-	                //process.argv[++param];
-	            break;
-	            case 'c':
-	            	//process.argv[++param];
-	            break;
-                case '-': {
-                    // long option
-                    break;
-                }
-	        }
-        }
-        else {
-        	console.log("Unknown option: " + process.argv[param]);
-        }
-    }
+// var param = 2, queueFile;
+// if (process.argv.length > 2) {
+//     for (; param < process.argv.length; ++param) {
+//     	var o = process.argv[param].charAt(0);
+//     	if (o === '-' && process.argv[param].length === 2) {
+//     		var c = process.argv[param].charAt(1);
+// 	        switch (c) {
+// 	            case 'q':
+// 	                queueFile = process.argv[++param];
+// 	            break;
+// 	            case 'p':
+// 	                //process.argv[++param];
+// 	            break;
+// 	            case 's':
+// 	                //process.argv[++param];
+// 	            break;
+// 	            case 'c':
+// 	            	//process.argv[++param];
+// 	            break;
+//                 case '-': {
+//                     // long option
+//                     break;
+//                 }
+// 	        }
+//         }
+//         else {
+//         	console.log("Unknown option: " + process.argv[param]);
+//         }
+//     }
+// }
+
+var seedUrl, seedPath, seedHost, queueFile;
+
+// if (param > 2) {
+//     seedUrl = process.argv[param];
+// }
+var params = new Params(optsAvailable);
+var opts = params.getOpts();
+var optCount = params.getOptCount();
+
+var inputs = opts['---'];
+
+if (!inputs || inputs.length === 0) {
+    params.setUsage(optsAvailable);
+    params.showUsage();
+
+    process.exit(-1);
 }
 
-var seedUrl;
+seedUrl = inputs;
+queueFile = opts["queue-file"];
 
-if (param > 2) {
-    seedUrl = process.argv[param];
-}
+var parsedSeed = url.parse(seedUrl);
+seedPath = path.dirname(parsedSeed.pathname);
+seedHost = parsedSeed.hostname;
 
 /**
  * parse the url
  */
 
 var createNewCrawler = function (seedUrl) {
-    seedUrl = seedUrl || 'http://localhost';
+    if (!seedUrl)
+        //seedUrl = seedUrl || 'http://localhost';
+        throw new Error("Missing seed url");
+
     var instance = new Crawler(seedUrl);
 
     // load config
@@ -82,11 +114,28 @@ var createNewCrawler = function (seedUrl) {
 
 //var urlObj = url.parse(seedUrl);
 var crawler = createNewCrawler (seedUrl);
+crawler.interval = 800;
+crawler.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36";
+crawler.cache = new Crawler.cache(__dirname + '/wwwarchive');
 
 var phantomBin = phantomjs.path,
     phantomBannedExtensions = /\.(png|jpg|jpeg|gif|ico|css|js|csv|doc|docx|pdf)$/i,
     phantomQueue = new Queue; // [];
     errorQueue = new Queue; //[];
+
+var phantomPatterns;
+var phantomSamePath = opts["same-path"];
+var phantomSameHost = opts["same-host"];
+
+if (opts.pattern) {
+    if (!Array.isArray(opts.pattern))
+        phantomPatterns = [opts.pattern];
+    else
+    phantomPatterns = opts.pattern;
+}
+else {
+    phantomPatterns = [];
+}
 
 // crawler.userAgent=
 // crawler.respectRobotsTxt=false
@@ -97,27 +146,7 @@ var mq = new MessageServer();
 var consumer;
 var producer;
 
-mq.createConsumer((instance) => {
-    console.log("Created newlink subscriber");
-    consumer = instance;
-
-    consumer.subscribe('newlink', (newUrl) => {
-        console.log("received new link: " + newUrl);
-        crawler.queueURL(newUrl);
-
-        if (Crawler.stopped) {
-            crawler.start();
-        }
-    });
-    
-    mq.createProducer('linkcontent', (instance) => {
-        console.log("Created linkcontent producer");
-        producer = instance;
-        phantomAPI.create({ binary: phantomBin }, runCrawler);
-    });
-
-});
-
+console.debug("Setting up the crawler...");
 // Events which end up being a bit noisy
 var boringEvents = [
     "queueduplicate",
@@ -148,14 +177,22 @@ crawler.emit = function(name, queueItem) {
     }
 
     if (boringEvents.indexOf(name) === -1) {
-        console.log(colors.cyan("%s") + "%s", pad(name), url);
+        if (name === "fetcherror") {
+            console.error(colors.red("%s") + "%s", pad(name), url);
+        }
+        else {
+            console.log(colors.cyan("%s") + "%s", pad(name), url);
+        }
     }
 
     originalEmit.apply(crawler, arguments);
 };
 
 crawler.on("complete", /*process.exit.bind(process, 0)*/() => {
-    crawler.stopped = true;
+    if (opts["exit-on-complete"])
+        process.exit(0);
+    else
+        crawler.stopped = true;
 });
 
 var redirects = {};
@@ -177,7 +214,30 @@ crawler.on("fetchredirect", (queueItem, parsedURL, response) => {
 function runCrawler(phantom) {
     crawler.start();
     crawler.on("queueadd", function(queueItem) {
-        if (!queueItem.url.match(phantomBannedExtensions)) {
+        var parsedUrl = url.parse(queueItem.url);
+
+        if (phantomSameHost) {
+            if (parsedUrl.hostname !== seedHost)
+                return;
+
+            if (parsedUrl.pathname !== seedPath)
+                return;
+        }
+
+        if (!parsedUrl.pathname.match(phantomBannedExtensions)) {
+
+            for (var i = 0; i < phantomPatterns.length; ++i) {
+                var pattern = phantomPatterns[i];
+
+                if (phantomSameHost) {
+                    if (!pattern.match(parsedUrl.pathname))
+                        return;
+                }
+                else {
+                    if (!pattern.match(queueItem.url))
+                        return;
+                }
+            }
             var resume = this.wait();
             phantomQueue.push(queueItem.url);
             processQueue(phantom, resume);
@@ -198,28 +258,38 @@ function fetchPage(phantom, url, callback) {
             colors.green("Phantom opened URL with %s — ") + colors.cyan("%s"), status, url);
 
         //if nothing further to do return callback();
-        if (status === 'success') {
-        // we are not doing the link discovery here
-            page.evaluate(processPage, function(result) {
-                // if result is the dom html
+        // originally
 
-
-                // if result is a link array
-                // result.forEach(function(url) {
-                //     if (url)
-                //         crawler.queueURL(url);
-                // });
-                setTimeout(function() {
-                    producer.produce.call(producer, {url:url, content:result});
-                }, 5);
-
-                callback();
+        page.evaluate(findPageLinks, function(result) {
+            result.forEach(function(url) {
+                // crawler.queueURL(url);
+                producer.produce.call(producer, {url:url, content:result});
             });
-        }
-        else {
-            console.error(status);
-            callback(new Error(status));
-        }
+            callback();
+        });
+
+        // if (status === 'success') {
+        // // we are not doing the link discovery here
+        //     page.evaluate(processPage, function(result) {
+        //         // if result is the dom html
+
+
+        //         // if result is a link array
+        //         // result.forEach(function(url) {
+        //         //     if (url)
+        //         //         crawler.queueURL(url);
+        //         // });
+        //         setTimeout(function() {
+        //             producer.produce.call(producer, {url:url, content:result});
+        //         }, 5);
+
+        //         callback();
+        //     });
+        // }
+        // else {
+        //     console.error(status);
+        //     callback(new Error(status));
+        // }
     });
 }
 
@@ -306,3 +376,38 @@ process.prependListener('SIGINT', function() {
 // process.prependListener('SIGINT', function() {
 //     console.log("Caught interrupt signal");
 // });
+
+console.debug("Setting up the message queue...");
+mq.createProducer('linkcontent')
+ .then((instance) => {
+        console.log("Created linkcontent producer");
+        producer = instance;
+
+        return mq.createConsumer('linkconsumer');
+    }
+)
+.then((instance) => {
+    console.log("Created newlink subscriber");
+    consumer = instance;
+
+    consumer.subscribe('linkcontent', 'newlink', (newUrl, from) => {
+            console.log("received new link: " + newUrl);
+            crawler.queueURL(newUrl);
+
+            if (Crawler.stopped) {
+                crawler.start();
+            }
+        });
+
+    console.debug("Starting crawler...");
+    phantomAPI.create(
+        [
+            '--web-security=no',
+        ]
+        )
+        .then((phantom) => {
+            runCrawler(phantom);
+        });
+    });
+
+// phantomAPI.create({ binary: phantomBin }, runCrawler);

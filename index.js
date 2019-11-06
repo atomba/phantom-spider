@@ -7,7 +7,7 @@ const url           = require("url"),
       path          = require("path");
       _             = require("lodash");
 
-var Crawler         = require("jes-spider"),
+var Crawler         = require("simplecrawler"),
     colors          = require("colors/safe"),
     dateFormat      = require('dateformat');
 
